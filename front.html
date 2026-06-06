@@ -1,0 +1,1327 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>LinguaFlow — 实时语音翻译</title>
+<style>
+/* ========================================================================
+   Theme: CSS variables — toggled by [data-theme] on <html>
+   ======================================================================== */
+:root,
+[data-theme="light"] {
+  --bg:           #f8f9fa;
+  --surface:      #ffffff;
+  --border:       #e5e7eb;
+  --text:         #1f2937;
+  --text2:        #9ca3af;
+  --accent:       #4f46e5;
+  --accent2:      #7c3aed;
+  --danger:       #ef4444;
+  --success:      #22c55e;
+  --bubble-me:    #eef2ff;
+  --bubble-you:   #f3f4f6;
+  --shadow:       0 1px 3px rgba(0,0,0,.06);
+  --shadow-lg:    0 4px 24px rgba(0,0,0,.08);
+  --radius:       16px;
+  --radius-sm:    10px;
+  --radius-xs:    6px;
+}
+
+[data-theme="dark"] {
+  --bg:           #111827;
+  --surface:      #1f2937;
+  --border:       #374151;
+  --text:         #f3f4f6;
+  --text2:        #6b7280;
+  --accent:       #818cf8;
+  --accent2:      #a78bfa;
+  --danger:       #f87171;
+  --success:      #4ade80;
+  --bubble-me:    #1e1b4b;
+  --bubble-you:   #1f2937;
+  --shadow:       0 1px 3px rgba(0,0,0,.3);
+  --shadow-lg:    0 4px 24px rgba(0,0,0,.4);
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100dvh;
+  display: flex;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  transition: background .3s, color .3s;
+}
+
+.app {
+  width: 100%;
+  max-width: 560px;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* ========================================================================
+   Header
+   ======================================================================== */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  z-index: 10;
+  transition: background .3s;
+}
+.header h1 {
+  font-size: 1.15em;
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.header-right { display:flex; gap:6px; align-items:center; }
+
+.icon-btn {
+  width: 34px; height: 34px; border-radius: 50%;
+  border: 1px solid var(--border); background: transparent;
+  color: var(--text2); font-size: 1em; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: .2s;
+}
+.icon-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Mic status mini-dot */
+.mic-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--text2); flex-shrink: 0; transition: .3s;
+}
+.mic-dot.active { background: var(--success); box-shadow: 0 0 6px var(--success); }
+
+/* ========================================================================
+   Transcript area — the main stage
+   ======================================================================== */
+.transcript-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+.transcript-area::-webkit-scrollbar { width: 3px; }
+.transcript-area::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* Empty state */
+.empty-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text2);
+  text-align: center;
+  gap: 8px;
+  padding: 40px 20px;
+}
+.empty-state .empty-icon {
+  font-size: 3em;
+  opacity: .5;
+  margin-bottom: 8px;
+}
+.empty-state .empty-title {
+  font-size: 1em;
+  font-weight: 600;
+  color: var(--text);
+  opacity: .6;
+}
+.empty-state .empty-sub {
+  font-size: .82em;
+  line-height: 1.6;
+  max-width: 280px;
+}
+
+/* ========================================================================
+   Message bubbles — chat style
+   ======================================================================== */
+.msg-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  animation: fadeUp .3s ease-out;
+}
+@keyframes fadeUp {
+  from { opacity:0; transform:translateY(8px); }
+  to   { opacity:1; transform:translateY(0); }
+}
+
+.msg-group .time-stamp {
+  text-align: center;
+  font-size: .7em;
+  color: var(--text2);
+  padding: 4px 0;
+}
+
+/* Original speech bubble */
+.msg-original {
+  align-self: flex-end;
+  max-width: 85%;
+  background: var(--bubble-me);
+  border-radius: var(--radius) var(--radius) 4px var(--radius);
+  padding: 10px 14px;
+  font-size: .92em;
+  line-height: 1.5;
+  color: var(--text);
+  position: relative;
+  word-break: break-word;
+  transition: background .3s;
+}
+.msg-original::before {
+  content: attr(data-lang);
+  display: block;
+  font-size: .65em;
+  color: var(--text2);
+  margin-bottom: 3px;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}
+
+/* Translation bubble */
+.msg-translated {
+  align-self: flex-start;
+  max-width: 85%;
+  background: var(--bubble-you);
+  border-radius: 4px var(--radius) var(--radius) var(--radius);
+  padding: 10px 14px;
+  font-size: .92em;
+  line-height: 1.5;
+  color: var(--text);
+  position: relative;
+  word-break: break-word;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  transition: background .3s;
+}
+.msg-translated::before {
+  content: attr(data-lang);
+  display: block;
+  font-size: .65em;
+  color: var(--text2);
+  margin-bottom: 3px;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}
+.msg-translated .content {
+  flex: 1;
+}
+/* Streaming partial text — subtle pulsing to indicate live updates */
+.msg-original.streaming-text::after {
+  content: ' ▌';
+  animation: blink 0.8s step-end infinite;
+  color: var(--accent);
+  font-weight: 700;
+}
+/* Streaming cursor animation */
+.msg-translated.streaming .content::after {
+  content: '|';
+  animation: blink 0.6s step-end infinite;
+  color: var(--accent);
+  margin-left: 1px;
+}
+@keyframes blink {
+  0%,100% { opacity: 1; }
+  50%     { opacity: 0; }
+}
+.tts-btn {
+  background: none; border: 1px solid var(--border);
+  color: var(--accent); border-radius: 50%; width: 28px; height: 28px;
+  font-size: .75em; cursor: pointer; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  transition: .2s;
+}
+.tts-btn:hover { border-color: var(--accent); background: rgba(99,102,241,.1); }
+
+/* Status line inside transcript */
+.status-line {
+  text-align: center;
+  font-size: .72em;
+  color: var(--text2);
+  padding: 8px 0;
+  font-style: italic;
+}
+
+/* ========================================================================
+   Bottom bar — compact controls
+   ======================================================================== */
+.bottom-bar {
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: 10px 16px;
+  padding-bottom: max(10px, env(safe-area-inset-bottom));
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  transition: background .3s;
+}
+
+/* Language pills */
+.lang-pill-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+.lang-pill {
+  font-size: .78em;
+  padding: 6px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: .2s;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lang-pill:hover { border-color: var(--accent); }
+.lang-pill.open { border-color: var(--accent); background: var(--bubble-me); }
+
+.swap-btn {
+  width: 30px; height: 30px; border-radius: 50%;
+  border: 1px solid var(--border); background: transparent;
+  color: var(--accent); font-size: 1em; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; transition: .3s;
+}
+.swap-btn:hover { border-color: var(--accent); transform: rotate(180deg); }
+
+/* Language picker dropdown */
+.lang-picker {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  z-index: 50;
+  min-width: 160px;
+  max-height: 260px;
+  overflow-y: auto;
+  display: none;
+  transition: background .3s;
+}
+.lang-picker.show { display: block; animation: fadeUp .2s ease-out; }
+.lang-picker.right { left: auto; right: 0; }
+
+.lang-picker-item {
+  display: block;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: .85em;
+  cursor: pointer;
+  text-align: left;
+  transition: .1s;
+}
+.lang-picker-item:hover { background: var(--bubble-me); }
+.lang-picker-item.selected { color: var(--accent); font-weight: 600; }
+
+.lang-picker::-webkit-scrollbar { width: 3px; }
+.lang-picker::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* Record button — small circle */
+.record-btn {
+  width: 48px; height: 48px; border-radius: 50%;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 1.3em;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: .25s;
+  position: relative;
+  box-shadow: 0 2px 12px rgba(79,70,229,.3);
+}
+.record-btn:active { transform: scale(.92); }
+.record-btn:hover { box-shadow: 0 4px 20px rgba(79,70,229,.4); }
+
+.record-btn.recording {
+  background: var(--danger);
+  box-shadow: 0 2px 12px rgba(239,68,68,.3);
+  animation: rec-pulse 1.8s ease-in-out infinite;
+}
+@keyframes rec-pulse {
+  0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,.4); }
+  50%     { box-shadow: 0 0 0 12px rgba(239,68,68,0); }
+}
+
+.record-btn.processing {
+  background: var(--accent2);
+  opacity: .85;
+}
+
+/* Status text next to record button */
+.rec-status {
+  font-size: .75em;
+  color: var(--text2);
+  min-width: 60px;
+  white-space: nowrap;
+  transition: .2s;
+}
+.rec-status.recording { color: var(--danger); }
+
+/* Meter */
+.meter-track {
+  flex: 1;
+  height: 3px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  min-width: 30px;
+}
+.meter-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  border-radius: 2px;
+  transition: width 80ms linear;
+}
+
+/* ========================================================================
+   Settings Modal
+   ======================================================================== */
+.modal-overlay {
+  position: fixed; inset:0; background: rgba(0,0,0,.6);
+  display: flex; align-items: flex-end; z-index: 100;
+  animation: fadeIn .2s;
+}
+@keyframes fadeIn { from{opacity:0;} to{opacity:1;} }
+.modal {
+  background: var(--surface);
+  border-radius: 20px 20px 0 0;
+  width: 100%; max-width: 560px; max-height: 85vh;
+  margin: 0 auto; overflow-y: auto; padding: 24px 20px 40px;
+  animation: slideUp .3s ease-out;
+  transition: background .3s;
+}
+@keyframes slideUp { from{transform:translateY(100%);} to{transform:translateY(0);} }
+.modal h3 { color: var(--text); margin-bottom: 20px; font-size: 1.1em; }
+.modal .field { margin-bottom: 14px; }
+.modal label {
+  display: block; color: var(--text2); font-size: .72em;
+  margin-bottom: 5px; text-transform: uppercase; letter-spacing: .5px;
+}
+.modal input {
+  width: 100%; padding: 10px 12px; border-radius: var(--radius-xs);
+  border: 1px solid var(--border); background: var(--bg);
+  color: var(--text); font-size: .88em; transition: .2s;
+}
+.modal input:focus { outline: none; border-color: var(--accent); }
+.modal .btn-row { display: flex; gap: 10px; margin-top: 20px; }
+.modal .btn-row button {
+  flex:1; padding: 11px; border-radius: var(--radius-sm);
+  border: none; font-size: .9em; cursor: pointer; font-weight: 600;
+}
+.btn-save { background: var(--accent); color: #fff; }
+.btn-cancel { background: var(--bg); color: var(--text2); border: 1px solid var(--border); }
+
+/* ========================================================================
+   Toast
+   ======================================================================== */
+.toast {
+  position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%);
+  background: #1f2937; color: #f3f4f6; border-radius: 20px;
+  padding: 10px 22px; font-size: .82em;
+  z-index: 200; animation: fadeUp .3s; pointer-events: none;
+  box-shadow: var(--shadow-lg);
+}
+[data-theme="light"] .toast { background: #1f2937; color: #f3f4f6; }
+[data-theme="dark"]  .toast { background: #f3f4f6; color: #1f2937; }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- Header -->
+  <div class="header">
+    <h1>LinguaFlow</h1>
+    <div class="header-right">
+      <span class="mic-dot" id="micDot" title="麦克风状态"></span>
+      <button class="icon-btn" id="btnTheme" title="切换深浅色主题">&#9789;</button>
+      <button class="icon-btn" id="btnSettings" title="设置">&#9881;</button>
+    </div>
+  </div>
+
+  <!-- Transcript area -->
+  <div class="transcript-area" id="transcriptArea">
+    <div class="empty-state" id="emptyState">
+      <div class="empty-icon">&#127897;</div>
+      <div class="empty-title">准备就绪</div>
+      <div class="empty-sub">点击下方麦克风按钮开始录音<br>语音将实时转录并翻译</div>
+    </div>
+  </div>
+
+  <!-- Bottom bar -->
+  <div class="bottom-bar">
+    <div class="lang-pill-wrap" id="wrapSourceLang">
+      <button class="lang-pill" id="btnSourceLang">法语</button>
+      <div class="lang-picker" id="pickerSourceLang"></div>
+    </div>
+    <button class="swap-btn" id="btnSwap" title="交换语言">&#8644;</button>
+    <div class="lang-pill-wrap" id="wrapTargetLang">
+      <button class="lang-pill" id="btnTargetLang">中文</button>
+      <div class="lang-picker right" id="pickerTargetLang"></div>
+    </div>
+    <div class="meter-track"><div class="meter-fill" id="meterFill" style="width:0%"></div></div>
+    <span class="rec-status" id="recStatus">就绪</span>
+    <button class="record-btn" id="recordBtn" title="开始/停止录音">&#127908;</button>
+  </div>
+</div>
+
+<!-- Settings Modal -->
+<div class="modal-overlay" id="modalOverlay" style="display:none;">
+  <div class="modal">
+    <h3>设置</h3>
+    <div class="field">
+      <label>后端 WebSocket 地址</label>
+      <input type="text" id="inputBackendUrl" placeholder="ws://localhost:8765/ws">
+    </div>
+    <div class="field">
+      <label>API Key</label>
+      <input type="password" id="inputApiKey" placeholder="sk-..." autocomplete="off">
+    </div>
+    <div class="field">
+      <label>API Base URL</label>
+      <input type="text" id="inputApiBase" placeholder="https://api.openai.com/v1">
+    </div>
+    <div class="field">
+      <label>翻译模型 (LLM)</label>
+      <input type="text" id="inputModel" placeholder="gpt-4o-mini">
+    </div>
+    <div class="field">
+      <label>Whisper 模型 (重启后端生效)</label>
+      <select id="inputWhisper" style="width:100%;padding:10px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:.88em;">
+        <option value="tiny">tiny — 最快，准确率一般</option>
+        <option value="base">base — 均衡（推荐）</option>
+        <option value="small">small — 最准，较慢</option>
+      </select>
+    </div>
+    <div class="btn-row">
+      <button class="btn-cancel" id="btnCancel">取消</button>
+      <button class="btn-save" id="btnSave">保存并重新连接</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================================
+// LinguaFlow Frontend v4 — Chat-style UI with light/dark themes
+//
+// Architecture:
+//   UI: CSS custom properties for theming, flexbox layout (header + body + footer)
+//   Audio: ScriptProcessorNode (PCM capture) → linear interpolation → Int16 → WS binary
+//   State: STATE singleton holds all mutable app-wide state
+//   Messages: JSON over WebSocket, with seg_id for parallel bubble matching
+//   Display: msg-group DOM elements mapped by seg_id in _msgGroups for O(1) updates
+// ============================================================================
+
+// ---- Global application state (single source of truth) ----
+const STATE = {
+  // Connection
+  ws: null,
+  connected: false,
+  _reconnectTimer: null,
+  backendUrl: localStorage.getItem('lf_backend_url') || 'ws://localhost:8765/ws',
+  apiKey: localStorage.getItem('lf_api_key') || '',
+  apiBase: localStorage.getItem('lf_api_base') || 'https://api.openai.com/v1',
+  model: localStorage.getItem('lf_model') || 'gpt-4o-mini',
+  whisperSize: localStorage.getItem('lf_whisper') || 'tiny',
+
+  // Language
+  sourceLang: localStorage.getItem('lf_source_lang') || 'fr',
+  sourceLangName: '法语',
+  targetLang: localStorage.getItem('lf_target_lang') || 'zh',
+  targetLangName: '中文',
+
+  // Audio
+  audioCtx: null,
+  scriptNode: null,
+  analyserNode: null,
+  mediaStream: null,
+  _micStream: null,
+  _micGranted: false,
+  isRecording: false,
+
+  // Theme
+  theme: localStorage.getItem('lf_theme') || 'auto',
+
+  // UI state
+  processing: false,
+  lastTranslation: '',
+  _msgGroups: {},       // seg_id → DOM element, enables parallel bubbles
+  _activeSegId: null,   // most recent seg_id for TTS fallback
+  _partialBubble: null, // DOM element for accumulating streaming partials
+};
+
+const LANGUAGES = [
+  { code: 'auto', name: '自动检测' },
+  { code: 'zh',  name: '中文' },
+  { code: 'en',  name: 'English' },
+  { code: 'fr',  name: 'Français' },
+  { code: 'ja',  name: '日本語' },
+  { code: 'ko',  name: '한국어' },
+  { code: 'de',  name: 'Deutsch' },
+  { code: 'es',  name: 'Español' },
+  { code: 'pt',  name: 'Português' },
+  { code: 'it',  name: 'Italiano' },
+  { code: 'ru',  name: 'Русский' },
+  { code: 'ar',  name: 'العربية' },
+  { code: 'hi',  name: 'हिन्दी' },
+  { code: 'th',  name: 'ไทย' },
+  { code: 'vi',  name: 'Tiếng Việt' },
+  { code: 'nl',  name: 'Nederlands' },
+];
+
+const LANG_NAMES = {
+  zh:'Chinese', en:'English', fr:'French', ja:'Japanese', ko:'Korean',
+  de:'German', es:'Spanish', pt:'Portuguese', it:'Italian', ru:'Russian',
+  ar:'Arabic', hi:'Hindi', th:'Thai', vi:'Vietnamese', nl:'Dutch',
+  auto:'Auto',
+};
+
+// --- DOM refs ---
+const $ = (s) => document.querySelector(s);
+
+const els = {
+  transcriptArea: $('#transcriptArea'),
+  emptyState: $('#emptyState'),
+  btnSourceLang: $('#btnSourceLang'),
+  btnTargetLang: $('#btnTargetLang'),
+  btnSwap: $('#btnSwap'),
+  meterFill: $('#meterFill'),
+  recStatus: $('#recStatus'),
+  recordBtn: $('#recordBtn'),
+  micDot: $('#micDot'),
+  btnTheme: $('#btnTheme'),
+  btnSettings: $('#btnSettings'),
+  modalOverlay: $('#modalOverlay'),
+  inputBackendUrl: $('#inputBackendUrl'),
+  inputApiKey: $('#inputApiKey'),
+  inputApiBase: $('#inputApiBase'),
+  inputModel: $('#inputModel'),
+  inputWhisper: $('#inputWhisper'),
+  btnCancel: $('#btnCancel'),
+  btnSave: $('#btnSave'),
+};
+
+// ============================================================================
+// Theme
+// ============================================================================
+function applyTheme(theme) {
+  if (theme === 'auto') {
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
+    els.btnTheme.innerHTML = prefersDark ? '&#9789;' : '&#9728;';
+  } else {
+    document.documentElement.setAttribute('data-theme', theme);
+    els.btnTheme.innerHTML = theme === 'dark' ? '&#9789;' : '&#9728;';
+  }
+}
+
+function cycleTheme() {
+  const themes = ['auto', 'light', 'dark'];
+  const idx = themes.indexOf(STATE.theme);
+  STATE.theme = themes[(idx + 1) % themes.length];
+  localStorage.setItem('lf_theme', STATE.theme);
+  applyTheme(STATE.theme);
+  showToast(
+    STATE.theme === 'auto' ? '跟随系统' :
+    STATE.theme === 'dark' ? '深色模式' : '浅色模式'
+  );
+}
+
+els.btnTheme.onclick = cycleTheme;
+
+// Listen for system theme changes
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  if (STATE.theme === 'auto') applyTheme('auto');
+});
+
+applyTheme(STATE.theme);
+
+// ============================================================================
+// WebSocket — persistent connection with auto-reconnect
+//
+// Message types received (from backend):
+//   status:           "listening"|"speaking"|"transcribing"|"translating"
+//   transcript:       {seg_id, text, language} — ASR result for one utterance
+//   translation_start/partial/end: {seg_id, text} — streaming translation progress
+//   error:            {message} — backend error
+//
+// Message types sent (to backend):
+//   config: {sourceLang, targetLang, apiKey, apiBase, model}
+//   audio:  binary Int16 PCM frame
+//   stop:   flush buffer, cancel ASR, drain queue
+// ============================================================================
+function connectWs() {
+  if (STATE._reconnectTimer) {
+    clearTimeout(STATE._reconnectTimer);
+    STATE._reconnectTimer = null;
+  }
+  if (STATE.ws) {
+    STATE.ws.close(1000);
+    STATE.ws = null;
+  }
+
+  const ws = new WebSocket(STATE.backendUrl);
+  STATE.ws = ws;
+
+  ws.onopen = () => {
+    STATE.connected = true;
+    if (STATE._reconnectTimer) {
+      clearTimeout(STATE._reconnectTimer);
+      STATE._reconnectTimer = null;
+    }
+    sendConfig();
+  };
+
+  ws.onmessage = (ev) => {
+    try { handleMessage(JSON.parse(ev.data)); }
+    catch(e) { console.error('Invalid message:', ev.data); }
+  };
+
+  ws.onclose = () => {
+    STATE.connected = false;
+    if (!STATE._reconnectTimer) {
+      STATE._reconnectTimer = setTimeout(() => {
+        STATE._reconnectTimer = null;
+        connectWs();
+      }, 3000);
+    }
+  };
+
+  ws.onerror = () => {
+    STATE.connected = false;
+  };
+}
+
+function sendConfig() {
+  if (!STATE.ws || STATE.ws.readyState !== WebSocket.OPEN) return;
+  STATE.ws.send(JSON.stringify({
+    type: 'config',
+    sourceLang: STATE.sourceLang,
+    targetLang: STATE.targetLang,
+    apiKey: STATE.apiKey,
+    apiBase: STATE.apiBase,
+    model: STATE.model,
+    whisperSize: STATE.whisperSize,
+  }));
+}
+
+function handleMessage(msg) {
+  switch (msg.type) {
+    case 'status':
+      handleStatus(msg.message);
+      break;
+    case 'transcript_partial':
+      // Streaming partial — append to current utterance bubble
+      appendPartial(msg.seg_id, msg.text, msg.language, msg.timestamp);
+      break;
+    case 'transcript':
+      // Final transcript — create new bubble + trigger translation
+      addTranscript(msg.seg_id, msg.text, msg.language, msg.timestamp);
+      break;
+    case 'translation_start':
+      addTranslationPlaceholder(msg.seg_id, msg.timestamp);
+      break;
+    case 'translation_partial':
+      updateTranslationPartial(msg.seg_id, msg.text, msg.timestamp);
+      break;
+    case 'translation_end':
+      finishTranslation(msg.seg_id, msg.text, msg.timestamp, msg.note);
+      break;
+    case 'error':
+      showToast('错误: ' + msg.message);
+      break;
+  }
+}
+
+function handleStatus(message) {
+  switch (message) {
+    case 'listening':
+      STATE.processing = false;
+      updateRecUI();
+      break;
+    case 'speaking':
+      break;
+    case 'transcribing':
+      STATE.processing = true;
+      updateRecUI();
+      break;
+    case 'translating':
+      STATE.processing = true;
+      updateRecUI();
+      break;
+  }
+}
+
+// ============================================================================
+// Audio — mic acquisition + PCM streaming
+//
+// acquireMic(): one-time getUserMedia → cached _micStream (avoid repeated prompts)
+//   - Subsequent calls return cached stream if track is still live
+//   - releaseMic() explicitly stops tracks and clears permission indicator
+//
+// startRecording():
+//   1. acquireMic → 2. AudioContext + ScriptProcessorNode → 3. linear interpolation
+//      → 4. Int16 PCM → 5. binary WebSocket frame (no Base64 overhead)
+//
+// Linear interpolation resampling: maps source sample positions (at browser rate,
+// typically 44.1/48kHz) to target positions (16kHz) with fractional interpolation.
+// This avoids the aliasing artifacts of nearest-neighbor downsampling.
+//
+// stopRecording(): disconnects audio graph, closes AudioContext, sends "stop" to
+// backend. Does NOT release mic track (keeps permission for next recording).
+// ============================================================================
+async function acquireMic() {
+  if (STATE._micStream) {
+    const tracks = STATE._micStream.getAudioTracks();
+    if (tracks.length > 0 && tracks[0].readyState === 'live') return STATE._micStream;
+  }
+  STATE._micStream = await navigator.mediaDevices.getUserMedia({
+    audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+  });
+  STATE._micGranted = true;
+  els.micDot.classList.add('active');
+  return STATE._micStream;
+}
+
+function releaseMic() {
+  if (STATE._micStream) {
+    STATE._micStream.getTracks().forEach(t => t.stop());
+    STATE._micStream = null;
+    STATE._micGranted = false;
+    els.micDot.classList.remove('active');
+  }
+}
+
+async function startRecording() {
+  if (STATE.isRecording) return;
+  try {
+    STATE.mediaStream = await acquireMic();
+    STATE.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    const source = STATE.audioCtx.createMediaStreamSource(STATE.mediaStream);
+    STATE.analyserNode = STATE.audioCtx.createAnalyser();
+    STATE.analyserNode.fftSize = 256;
+    source.connect(STATE.analyserNode);
+
+    const scriptNode = STATE.audioCtx.createScriptProcessor(4096, 1, 1);
+    STATE.scriptNode = scriptNode;
+
+    scriptNode.onaudioprocess = (ev) => {
+      if (!STATE.isRecording) return;
+
+      const input = ev.inputBuffer.getChannelData(0);
+      const sampleRate = STATE.audioCtx.sampleRate;
+
+      let samples;
+      if (sampleRate !== 16000) {
+        // Linear interpolation resampling (no aliasing, unlike nearest-neighbor)
+        const ratio = sampleRate / 16000;
+        const newLen = Math.floor(input.length / ratio);
+        samples = new Float32Array(newLen);
+        for (let i = 0; i < newLen; i++) {
+          const srcIdx = i * ratio;
+          const srcIdxFloor = Math.floor(srcIdx);
+          const frac = srcIdx - srcIdxFloor;
+          const a = input[srcIdxFloor];
+          const b = input[Math.min(srcIdxFloor + 1, input.length - 1)];
+          samples[i] = a + (b - a) * frac;
+        }
+      } else {
+        samples = input;
+      }
+
+      const pcm = new Int16Array(samples.length);
+      for (let i = 0; i < samples.length; i++) {
+        const s = Math.max(-1, Math.min(1, samples[i]));
+        pcm[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+      }
+
+      // Send binary frame (P1 — no Base64 overhead)
+      if (STATE.ws && STATE.ws.readyState === WebSocket.OPEN) {
+        STATE.ws.send(pcm.buffer);
+      }
+
+      updateMeter();
+    };
+
+    source.connect(scriptNode);
+    scriptNode.connect(STATE.audioCtx.destination);
+
+    STATE.isRecording = true;
+    STATE._msgGroups = {};
+    STATE._activeSegId = null;
+    STATE._partialBubble = null;
+    updateRecUI();
+
+  } catch(err) {
+    console.error('Mic error:', err);
+    STATE.isRecording = false;
+    STATE._micGranted = false;
+    els.micDot.classList.remove('active');
+    showToast('无法访问麦克风: ' + (err.message || '请检查权限'));
+    updateRecUI();
+  }
+}
+
+function stopRecording() {
+  STATE.isRecording = false;
+
+  if (STATE.scriptNode) { STATE.scriptNode.disconnect(); STATE.scriptNode = null; }
+  STATE.mediaStream = null;
+  if (STATE.audioCtx) { STATE.audioCtx.close().catch(()=>{}); STATE.audioCtx = null; }
+
+  if (STATE.ws && STATE.ws.readyState === WebSocket.OPEN) {
+    STATE.ws.send(JSON.stringify({ type: 'stop' }));
+  }
+
+  updateRecUI();
+  els.meterFill.style.width = '0%';
+}
+
+function updateMeter() {
+  if (!STATE.analyserNode) return;
+  const data = new Uint8Array(STATE.analyserNode.frequencyBinCount);
+  STATE.analyserNode.getByteFrequencyData(data);
+  const avg = data.reduce((a,b) => a+b, 0) / data.length;
+  els.meterFill.style.width = Math.min(100, Math.round((avg/128)*100)) + '%';
+}
+
+// ============================================================================
+// Transcript display — parallel bubble system
+//
+// Each utterance gets a seg_id (from backend). Transcript and translation
+// messages carry the same seg_id, allowing the frontend to match them
+// correctly even when multiple translations are running simultaneously.
+//
+// Data structure: STATE._msgGroups = { seg_id → DOM element }
+//   - addTranscript:      creates new msg-group with "..." placeholder
+//   - updateTranslationPartial: streams tokens into correct bubble
+//   - finishTranslation:  finalizes text, adds TTS button
+//   - _getGroup:          O(1) lookup by seg_id, fallback to _activeSegId
+// ============================================================================
+function removeEmptyState() {
+  if (els.emptyState) {
+    els.emptyState.remove();
+    els.emptyState = null;
+  }
+}
+
+function getLangName(code) {
+  const found = LANGUAGES.find(l => l.code === code);
+  return found ? found.name : code;
+}
+
+function appendPartial(segId, text, detectedLang, timestamp) {
+  // Streaming partial: append text to the current utterance bubble.
+  // If no partial bubble exists yet, create one. The final transcript
+  // will replace it with a complete msg-group + translation.
+  removeEmptyState();
+
+  if (!STATE._partialBubble) {
+    // First partial of this utterance — create a temporary bubble
+    const group = document.createElement('div');
+    group.className = 'msg-group';
+    group.setAttribute('data-seg-id', 'partial');
+
+    const time = document.createElement('div');
+    time.className = 'time-stamp';
+    time.textContent = new Date(timestamp).toLocaleTimeString();
+    group.appendChild(time);
+
+    const orig = document.createElement('div');
+    orig.className = 'msg-original';
+    orig.setAttribute('data-lang', getLangName(detectedLang || STATE.sourceLang));
+    orig.textContent = text;
+    orig.classList.add('streaming-text'); // Indicate it's still updating
+    group.appendChild(orig);
+
+    // Translation placeholder
+    const trans = document.createElement('div');
+    trans.className = 'msg-translated';
+    trans.setAttribute('data-lang', STATE.targetLangName);
+    const content = document.createElement('span');
+    content.className = 'content';
+    content.textContent = '...';
+    trans.appendChild(content);
+    group.appendChild(trans);
+
+    els.transcriptArea.appendChild(group);
+    STATE._partialBubble = group;
+  } else {
+    // Append to existing partial bubble
+    const orig = STATE._partialBubble.querySelector('.msg-original');
+    if (orig) {
+      orig.textContent += ' ' + text;
+    }
+  }
+
+  els.transcriptArea.scrollTop = els.transcriptArea.scrollHeight;
+}
+
+function addTranscript(segId, text, detectedLang, timestamp) {
+  // Final transcript: replaces the partial bubble with a complete msg-group.
+  // If a partial bubble exists, remove it first (we have the complete text now).
+  removeEmptyState();
+
+  // Remove the partial bubble if it exists
+  if (STATE._partialBubble) {
+    STATE._partialBubble.remove();
+    STATE._partialBubble = null;
+  }
+  removeEmptyState();
+
+  const group = document.createElement('div');
+  group.className = 'msg-group';
+  group.setAttribute('data-seg-id', segId);
+
+  const time = document.createElement('div');
+  time.className = 'time-stamp';
+  time.textContent = new Date(timestamp).toLocaleTimeString();
+  group.appendChild(time);
+
+  const orig = document.createElement('div');
+  orig.className = 'msg-original';
+  orig.setAttribute('data-lang', getLangName(detectedLang || STATE.sourceLang));
+  orig.appendChild(document.createTextNode(text));
+  group.appendChild(orig);
+
+  // Translation placeholder — "..." while streaming
+  const trans = document.createElement('div');
+  trans.className = 'msg-translated streaming';
+  trans.setAttribute('data-lang', STATE.targetLangName);
+  const content = document.createElement('span');
+  content.className = 'content';
+  content.textContent = '...';
+  trans.appendChild(content);
+  group.appendChild(trans);
+
+  els.transcriptArea.appendChild(group);
+  STATE._msgGroups[segId] = group;
+  STATE._activeSegId = segId;
+  STATE.lastTranslation = '';
+  els.transcriptArea.scrollTop = els.transcriptArea.scrollHeight;
+}
+
+function _getGroup(segId) {
+  // If segId provided, look up exact; fall back to most recent
+  if (segId && STATE._msgGroups[segId]) return STATE._msgGroups[segId];
+  // Backward compat: if no seg_id in older messages, use active
+  if (STATE._activeSegId && STATE._msgGroups[STATE._activeSegId]) {
+    return STATE._msgGroups[STATE._activeSegId];
+  }
+  return null;
+}
+
+function addTranslationPlaceholder(segId, timestamp) {
+  const group = _getGroup(segId);
+  if (!group) return;
+  const transDiv = group.querySelector('.msg-translated');
+  if (transDiv) transDiv.classList.add('streaming');
+}
+
+function updateTranslationPartial(segId, text, timestamp) {
+  const group = _getGroup(segId);
+  if (!group) return;
+  const transDiv = group.querySelector('.msg-translated');
+  if (!transDiv) return;
+  const content = transDiv.querySelector('.content');
+  if (!content) return;
+  content.textContent = text;
+  els.transcriptArea.scrollTop = els.transcriptArea.scrollHeight;
+}
+
+function finishTranslation(segId, text, timestamp, note) {
+  const group = _getGroup(segId);
+  if (!group) return;
+  const transDiv = group.querySelector('.msg-translated');
+  if (!transDiv) return;
+  transDiv.classList.remove('streaming');
+  const content = transDiv.querySelector('.content');
+  if (!content) return;
+
+  if (text) {
+    content.textContent = text;
+    STATE.lastTranslation = text;
+
+    // Add TTS button
+    const existingBtn = transDiv.querySelector('.tts-btn');
+    if (!existingBtn) {
+      const ttsBtn = document.createElement('button');
+      ttsBtn.className = 'tts-btn';
+      ttsBtn.textContent = '🔊';
+      ttsBtn.title = '朗读翻译';
+      ttsBtn.onclick = () => speakText(text, STATE.targetLang);
+      transDiv.appendChild(ttsBtn);
+    }
+  } else if (note) {
+    content.textContent = '⚠ 请配置 API Key 以启用翻译';
+    content.style.opacity = '.6';
+  }
+
+  els.transcriptArea.scrollTop = els.transcriptArea.scrollHeight;
+}
+
+// ============================================================================
+// TTS
+// ============================================================================
+function speakText(text, lang) {
+  if (!window.speechSynthesis) { showToast('浏览器不支持语音合成'); return; }
+  window.speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = lang; u.rate = 0.95;
+  window.speechSynthesis.speak(u);
+}
+
+// ============================================================================
+// UI updates
+// ============================================================================
+function updateRecUI() {
+  const btn = els.recordBtn;
+  btn.classList.remove('recording', 'processing');
+
+  if (STATE.processing) {
+    btn.classList.add('processing');
+    els.recStatus.textContent = '处理中';
+    els.recStatus.className = 'rec-status';
+  } else if (STATE.isRecording) {
+    btn.classList.add('recording');
+    els.recStatus.textContent = '录音中';
+    els.recStatus.className = 'rec-status recording';
+    btn.innerHTML = '&#9641;'; // Stop square
+  } else {
+    els.recStatus.textContent = '就绪';
+    els.recStatus.className = 'rec-status';
+    btn.innerHTML = '&#127908;'; // Mic emoji
+  }
+}
+
+// ============================================================================
+// Language picker
+// ============================================================================
+let _activePicker = null; // currently open picker element
+
+function buildPicker(pickerEl, currentCode, onSelect) {
+  pickerEl.innerHTML = '';
+  LANGUAGES.forEach(lang => {
+    const item = document.createElement('button');
+    item.className = 'lang-picker-item';
+    if (lang.code === currentCode) item.classList.add('selected');
+    item.textContent = lang.name;
+    item.onmousedown = (e) => {
+      e.preventDefault(); // prevent blur from closing before click fires
+      onSelect(lang);
+      closeAllPickers();
+    };
+    pickerEl.appendChild(item);
+  });
+}
+
+function togglePicker(pickerEl, wrapEl, pillEl, currentCode, onSelect) {
+  if (pickerEl.classList.contains('show')) {
+    pickerEl.classList.remove('show');
+    pillEl.classList.remove('open');
+    _activePicker = null;
+    return;
+  }
+  closeAllPickers();
+  buildPicker(pickerEl, currentCode, onSelect);
+  pickerEl.classList.add('show');
+  pillEl.classList.add('open');
+  _activePicker = pickerEl;
+  // Scroll selected into view
+  const sel = pickerEl.querySelector('.selected');
+  if (sel) sel.scrollIntoView({ block: 'center' });
+}
+
+function closeAllPickers() {
+  document.querySelectorAll('.lang-picker').forEach(p => p.classList.remove('show'));
+  document.querySelectorAll('.lang-pill').forEach(p => p.classList.remove('open'));
+  _activePicker = null;
+}
+
+// Close picker when clicking outside
+document.addEventListener('mousedown', (e) => {
+  if (_activePicker && !e.target.closest('.lang-pill-wrap')) {
+    closeAllPickers();
+  }
+});
+
+// Source language picker
+function updateSourceDisplay() {
+  const lang = LANGUAGES.find(l => l.code === STATE.sourceLang);
+  if (lang) { els.btnSourceLang.textContent = lang.name; STATE.sourceLangName = lang.name; }
+}
+els.btnSourceLang.onclick = () => {
+  togglePicker(
+    document.getElementById('pickerSourceLang'),
+    document.getElementById('wrapSourceLang'),
+    els.btnSourceLang,
+    STATE.sourceLang,
+    (lang) => {
+      STATE.sourceLang = lang.code;
+      STATE.sourceLangName = lang.name;
+      localStorage.setItem('lf_source_lang', lang.code);
+      updateSourceDisplay();
+      sendConfig();
+    }
+  );
+};
+
+// Target language picker
+function updateTargetDisplay() {
+  const lang = LANGUAGES.find(l => l.code === STATE.targetLang);
+  if (lang) { els.btnTargetLang.textContent = lang.name; STATE.targetLangName = lang.name; }
+}
+els.btnTargetLang.onclick = () => {
+  togglePicker(
+    document.getElementById('pickerTargetLang'),
+    document.getElementById('wrapTargetLang'),
+    els.btnTargetLang,
+    STATE.targetLang,
+    (lang) => {
+      STATE.targetLang = lang.code;
+      STATE.targetLangName = lang.name;
+      localStorage.setItem('lf_target_lang', lang.code);
+      updateTargetDisplay();
+      sendConfig();
+    }
+  );
+};
+
+// Swap languages
+els.btnSwap.onclick = () => {
+  const tmpCode = STATE.sourceLang;
+  const tmpName = STATE.sourceLangName;
+  STATE.sourceLang = STATE.targetLang;
+  STATE.sourceLangName = STATE.targetLangName;
+  STATE.targetLang = tmpCode;
+  STATE.targetLangName = tmpName;
+  localStorage.setItem('lf_source_lang', STATE.sourceLang);
+  localStorage.setItem('lf_target_lang', STATE.targetLang);
+  updateSourceDisplay();
+  updateTargetDisplay();
+  sendConfig();
+  showToast('已交换: ' + STATE.sourceLangName + ' → ' + STATE.targetLangName);
+};
+
+// ============================================================================
+// Record button
+// ============================================================================
+els.recordBtn.onclick = async () => {
+  if (STATE.isRecording) {
+    stopRecording();
+  } else {
+    await startRecording();
+  }
+};
+
+// Keyboard: space to toggle
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'Space' && e.target === document.body) {
+    e.preventDefault();
+    els.recordBtn.click();
+  }
+});
+
+// ============================================================================
+// Settings
+// ============================================================================
+els.btnSettings.onclick = () => {
+  els.inputBackendUrl.value = STATE.backendUrl;
+  els.inputApiKey.value = STATE.apiKey;
+  els.inputApiBase.value = STATE.apiBase;
+  els.inputModel.value = STATE.model;
+  els.inputWhisper.value = STATE.whisperSize;
+  els.modalOverlay.style.display = 'flex';
+};
+
+els.btnCancel.onclick = () => { els.modalOverlay.style.display = 'none'; };
+els.modalOverlay.onclick = (e) => {
+  if (e.target === els.modalOverlay) els.modalOverlay.style.display = 'none';
+};
+
+els.btnSave.onclick = () => {
+  STATE.backendUrl = els.inputBackendUrl.value.trim() || 'ws://localhost:8765/ws';
+  STATE.apiKey = els.inputApiKey.value.trim();
+  STATE.apiBase = els.inputApiBase.value.trim() || 'https://api.openai.com/v1';
+  STATE.model = els.inputModel.value.trim() || 'gpt-4o-mini';
+  STATE.whisperSize = els.inputWhisper.value;
+
+  localStorage.setItem('lf_backend_url', STATE.backendUrl);
+  localStorage.setItem('lf_api_key', STATE.apiKey);
+  localStorage.setItem('lf_api_base', STATE.apiBase);
+  localStorage.setItem('lf_model', STATE.model);
+  localStorage.setItem('lf_whisper', STATE.whisperSize);
+
+  els.modalOverlay.style.display = 'none';
+  showToast('设置已保存，重新连接中...');
+  connectWs();
+};
+
+// ============================================================================
+// Toast
+// ============================================================================
+function showToast(msg) {
+  const existing = document.querySelector('.toast');
+  if (existing) existing.remove();
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2500);
+}
+
+// ============================================================================
+// Init
+// ============================================================================
+(function init() {
+  // Language display
+  updateSourceDisplay();
+  updateTargetDisplay();
+
+  // Settings fields
+  els.inputBackendUrl.value = STATE.backendUrl;
+  els.inputApiKey.value = STATE.apiKey;
+  els.inputApiBase.value = STATE.apiBase;
+  els.inputModel.value = STATE.model;
+  els.inputWhisper.value = STATE.whisperSize;
+
+  // Connect
+  connectWs();
+  updateRecUI();
+
+  console.log('LinguaFlow v2 ready');
+})();
+</script>
+</body>
+</html>

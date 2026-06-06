@@ -1,0 +1,13 @@
+# Model files (download on target machine)
+backend/models/
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.env
+
+# OS
+.DS_Store
+Thumbs.db
+temp/
