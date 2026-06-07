@@ -201,6 +201,7 @@ class TranscriptionSession:
         self._seg_id:    int = 0                     # Monotonic segment ID counter
         self._asr_worker: Optional[asyncio.Task] = None
         self._active_translations: set[asyncio.Task] = set()  # Running translation tasks
+        self._utterance_parts: list[str] = []        # Accumulated partial texts for current utterance
 
         # ---- Conversation context (for coherent translation) ----
         self.context_buffer: list[str] = []           # Last N translated texts
@@ -619,20 +620,27 @@ async def websocket_endpoint(ws: WebSocket):
                 ts = int(time.time() * 1000)
 
                 if segment.is_final:
-                    # ---- Silence-cut: final transcript + trigger translation ----
+                    # ---- Silence-cut: concatenate all partials + this segment ----
+                    session._utterance_parts.append(full_text)
+                    complete_text = " ".join(session._utterance_parts)
+                    session._utterance_parts.clear()
+                    logger.info(f"[{seg_id}] Final transcript (from {len(session._utterance_parts)+1} parts): {complete_text[:80]}...")
+
                     await send_json({
                         "type": "transcript", "seg_id": seg_id,
-                        "text": full_text, "language": info.language,
+                        "text": complete_text,
+                        "language": info.language,
                         "detected_lang": effective_src,
                         "timestamp": ts,
                     })
                     await send_json({
                         "type": "translation_start", "seg_id": seg_id, "timestamp": ts,
                     })
-                    t_task = asyncio.create_task(run_translation(seg_id, full_text, ts))
+                    t_task = asyncio.create_task(run_translation(seg_id, complete_text, ts))
                     session._active_translations.add(t_task)
                 else:
-                    # ---- Force-cut: partial transcript → frontend appends ----
+                    # ---- Force-cut: partial → accumulate for final concatenation ----
+                    session._utterance_parts.append(full_text)
                     await send_json({
                         "type": "transcript_partial", "seg_id": seg_id,
                         "text": full_text, "language": info.language,
